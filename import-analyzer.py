@@ -178,11 +178,11 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 		)
 		try:
 			import_froms_set = imported_from_by_module_and_path[
-				(module, module_fpath)
+				module, module_fpath
 			]
 		except KeyError:
 			import_froms_set = imported_from_by_module_and_path[
-				(module, module_fpath)
+				module, module_fpath
 			] = set()
 		for name in stm.names:
 			if not name.name:
@@ -328,7 +328,7 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 			print(f"Unknown statemnent type: {stm} with type {type(stm)}")
 		return None
 
-	with open(fpath) as _file:
+	with open(fpath, encoding="utf-8") as _file:
 		text = _file.read()
 	try:
 		code = ast.parse(text)
@@ -348,7 +348,7 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 
 	module_attr_access = set()
 	for _id, attr in attr_access:
-		if _id in ("self", "msg"):
+		if _id in {"self", "msg"}:
 			continue
 		if _id not in imports_by_name:
 			# print(f"{fpathRel}: {_id}.{attr}  (Unknown)")
@@ -401,7 +401,7 @@ for _module, attr, module_fpath in all_module_attr_access:
 for module, module_fpath in sorted(to_check_imported_modules):
 	# print(module, module_fpath)
 	full_path = join(rootDir, module_fpath)
-	with open(full_path) as _file:
+	with open(full_path, encoding="utf-8") as _file:
 		text = _file.read()
 	if is_excluded(module_fpath):
 		continue
@@ -422,8 +422,7 @@ for module, module_fpath in sorted(to_check_imported_modules):
 	names2 = module_attr_access_by_fpath.get(module_fpath)
 	if names2:
 		_all_set.update(names2)
-	if "*" in _all_set:
-		_all_set.remove("*")
+	_all_set.discard("*")
 	if len(_all_set) == len(_all_set_current):
 		continue
 	add_list = list(_all_set.difference(_all_set_current))
@@ -467,7 +466,7 @@ for module, module_fpath in sorted(to_check_imported_modules):
 	# print("Updated", full_path)
 
 
-with open(f"{args.out_dir}/module-attrs.json", "w") as _file:
+with open(f"{args.out_dir}/module-attrs.json", "w", encoding="utf-8") as _file:
 	json.dump(
 		{
 			module: sorted(attrs)
@@ -479,10 +478,10 @@ with open(f"{args.out_dir}/module-attrs.json", "w") as _file:
 	)
 
 
-with open(f"{args.out_dir}/imports_set.json", "w") as _file:
+with open(f"{args.out_dir}/imports_set.json", "w", encoding="utf-8") as _file:
 	json.dump(sorted(imported_set), _file, indent="\t")
 
-with open(f"{args.out_dir}/imports_from_set.json", "w") as _file:
+with open(f"{args.out_dir}/imports_from_set.json", "w", encoding="utf-8") as _file:
 	json.dump(
 		{
 			module: sorted(value)
