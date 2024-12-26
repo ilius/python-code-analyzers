@@ -63,10 +63,7 @@ all_module_attr_access = set()
 
 @lru_cache(maxsize=None, typed=False)
 def is_excluded(fpath: str) -> bool:
-	for pat in re_exclude_list:
-		if pat.match(fpath):
-			return True
-	return False
+	return any(pat.match(fpath) for pat in re_exclude_list)
 
 
 def formatList(lst):
@@ -132,247 +129,253 @@ def find__all__(code):
 	return None, []
 
 
-for dirPath, subDirs, files in os.walk(scanDir):
-	dirPathRel = dirPath[len(rootDir) :]
+def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
+	if not fname.endswith(".py"):
+		return
+	fpath = join(dirPath, fname)
+	if is_excluded(fpath):
+		return
+	# print(fpath)
+	# strip rootDir prefix
+	fpathRel = fpath[len(rootDir) :]
 
-	for fname in files:
-		if not fname.endswith(".py"):
-			continue
-		fpath = join(dirPath, fname)
-		if is_excluded(fpath):
-			continue
-		# print(fpath)
-		# strip rootDir prefix
-		fpathRel = fpath[len(rootDir) :]
+	if is_excluded(fpathRel):
+		return
+	# print(f"{fpathRel = }")
 
-		if is_excluded(fpathRel):
-			continue
-		# print(f"{fpathRel = }")
+	imports = []
+	imports_by_name = {}
+	import_froms = []
+	attr_access = set()
 
-		imports = []
-		imports_by_name = {}
-		import_froms = []
-		attr_access = set()
-
-		def handleImport(stm):
-			for name in stm.names:
-				module_fpath = moduleFilePath(
-					name.name,
-					dirPathRel,
-					tuple(subDirs),
-					tuple(files),
-				)
-				if name.asname:
-					imports.append(f"{name.name} as {name.asname}")
-					imports_by_name[name.asname] = (name.name, module_fpath)
-				else:
-					imports.append(name.name)
-					imports_by_name[name.name] = (name.name, module_fpath)
-				imported_set.add(name.name)
-
-		def handleImportFrom(stm):
-			module = stm.module
-			if module is None:
-				# print(f"{module = }, {stm!r}", file=sys.stderr)
-				return
-			jsonNames = []
+	def handleImport(stm):
+		for name in stm.names:
 			module_fpath = moduleFilePath(
-				module,
+				name.name,
 				dirPathRel,
 				tuple(subDirs),
 				tuple(files),
 			)
-			try:
-				import_froms_set = imported_from_by_module_and_path[
-					(module, module_fpath)
-				]
-			except KeyError:
-				import_froms_set = imported_from_by_module_and_path[
-					(module, module_fpath)
-				] = set()
-			for name in stm.names:
-				if not name.name:
-					# print(f"{name = }", file=sys.stderr)
-					continue
-				full_name = module + "." + name.name
-				module_fpath = moduleFilePath(
-					full_name,
-					dirPathRel,
-					tuple(subDirs),
-					tuple(files),
-					silent=True,
-				)
-				if name.asname:
-					jsonNames.append(f"{name.name} as {name.asname}")
-					imports_by_name[name.asname] = (full_name, module_fpath)
-				else:
-					jsonNames.append(name.name)
-					imports_by_name[name.name] = (full_name, module_fpath)
-				import_froms.append((module, jsonNames))
-				import_froms_set.add(name.name)
-
-		def handleAttribute(stm):
-			if isinstance(stm.value, ast.Name):
-				attr_access.add((stm.value.id, stm.attr))
-				return None
-			return handleStatement(stm.value)
-
-		def handleStatementList(statements):
-			for stm in statements:
-				handleStatement(stm)
-
-		def handleStatements(*statements):
-			for stm in statements:
-				handleStatement(stm)
-
-		def handleStatement(stm):
-			if stm is None:
-				return None
-			if isinstance(stm, ast.Import):
-				handleImport(stm)
-			elif isinstance(stm, ast.ImportFrom):
-				handleImportFrom(stm)
-			elif isinstance(stm, ast.Name):
-				# print(f"name: id={stm.id}")
-				pass
-			elif isinstance(
-				stm,
-				ast.Pass
-				| ast.Break
-				| ast.Continue
-				| ast.Delete
-				| ast.Constant
-				| ast.JoinedStr
-				| ast.Slice
-				| ast.Global,
-			):
-				pass
-			elif isinstance(stm, ast.Assign):
-				handleStatement(stm.value)
-			elif isinstance(stm, ast.AugAssign):
-				handleStatements(stm.target, stm.value)
-			elif isinstance(stm, ast.Expr):
-				handleStatement(stm.value)
-			elif isinstance(stm, ast.Return):
-				handleStatement(stm.value)
-			elif isinstance(stm, ast.Yield):
-				handleStatement(stm.value)
-			elif isinstance(stm, ast.YieldFrom):
-				handleStatement(stm.value)
-			elif isinstance(stm, ast.Assert):
-				handleStatements(stm.test, stm.msg)
-			elif isinstance(stm, ast.IfExp):
-				handleStatements(stm.test, stm.body, stm.orelse)
-			elif isinstance(stm, ast.FunctionDef):
-				handleStatementList(stm.args.defaults)
-				handleStatementList(stm.body)
-				handleStatementList(stm.decorator_list)
-			elif isinstance(stm, ast.ClassDef):
-				handleStatementList(stm.body)
-			elif isinstance(stm, ast.BoolOp):
-				handleStatementList(stm.values)
-			elif isinstance(stm, ast.Subscript):
-				handleStatements(stm.value, stm.slice)
-			elif isinstance(stm, ast.With):
-				handleStatementList(stm.items + stm.body)
-			elif isinstance(stm, ast.List | ast.Tuple | ast.Set):
-				handleStatementList(stm.elts)
-			elif isinstance(stm, ast.Lambda):
-				handleStatement(stm.body)
-			elif isinstance(stm, ast.For):
-				handleStatementList([stm.target, stm.iter] + stm.body + stm.orelse)
-			elif isinstance(stm, ast.While):
-				handleStatementList([stm.test] + stm.body + stm.orelse)
-			elif isinstance(stm, ast.BinOp):
-				handleStatements(stm.left, stm.right)
-			elif isinstance(stm, ast.UnaryOp):
-				handleStatement(stm.operand)
-			elif isinstance(stm, ast.Try):
-				handleStatementList(
-					stm.body + stm.handlers + stm.orelse + stm.finalbody,
-				)
-			elif isinstance(stm, ast.ExceptHandler):
-				handleStatementList([stm.type] + stm.body)
-			elif isinstance(stm, ast.Call):
-				handleStatement(stm.func)
-			elif isinstance(stm, ast.If):
-				handleStatementList([stm.test] + stm.body)
-			elif isinstance(stm, ast.Compare):
-				handleStatementList([stm.left] + stm.comparators)
-			elif isinstance(stm, ast.withitem):
-				handleStatements(stm.context_expr, stm.optional_vars)
-			elif isinstance(stm, ast.Raise):
-				handleStatement(stm.exc)
-			elif isinstance(stm, ast.Return):
-				handleStatement(stm.value)
-			elif isinstance(stm, ast.Dict):
-				# TODO
-				pass
-			elif isinstance(
-				stm,
-				ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
-			):
-				handleStatementList(stm.generators)
-			elif isinstance(stm, ast.comprehension):
-				handleStatementList([stm.target, stm.iter] + stm.ifs)
-			elif isinstance(stm, ast.Attribute):
-				return handleAttribute(stm)
-			elif isinstance(stm, ast.AnnAssign):
-				handleStatements(stm.target, stm.annotation, stm.value)
-			elif isinstance(stm, ast.NamedExpr):
-				handleStatements(stm.target, stm.value)
-			elif isinstance(stm, ast.AsyncFunctionDef):
-				handleStatementList(stm.args.defaults)
-				handleStatementList(stm.body)
-				handleStatementList(stm.decorator_list)
-			elif isinstance(stm, ast.Starred):
-				handleStatement(stm.value)
-			elif isinstance(stm, ast.Nonlocal):
-				# stm.names is list[str]
-				pass
+			if name.asname:
+				imports.append(f"{name.name} as {name.asname}")
+				imports_by_name[name.asname] = (name.name, module_fpath)
 			else:
-				print(f"Unknown statemnent type: {stm} with type {type(stm)}")
+				imports.append(name.name)
+				imports_by_name[name.name] = (name.name, module_fpath)
+			imported_set.add(name.name)
 
-		with open(fpath) as _file:
-			text = _file.read()
+	def handleImportFrom(stm):
+		module = stm.module
+		if module is None:
+			# print(f"{module = }, {stm!r}", file=sys.stderr)
+			return
+		jsonNames = []
+		module_fpath = moduleFilePath(
+			module,
+			dirPathRel,
+			tuple(subDirs),
+			tuple(files),
+		)
 		try:
-			code = ast.parse(text)
-		except Exception as e:
-			print(f"failed to parse {fpath}: {e}", file=sys.stderr)
-			continue
-		for stm in code.body:
-			if isinstance(stm, ast.Import):
-				handleImport(stm)
+			import_froms_set = imported_from_by_module_and_path[
+				(module, module_fpath)
+			]
+		except KeyError:
+			import_froms_set = imported_from_by_module_and_path[
+				(module, module_fpath)
+			] = set()
+		for name in stm.names:
+			if not name.name:
+				# print(f"{name = }", file=sys.stderr)
 				continue
+			full_name = module + "." + name.name
+			module_fpath = moduleFilePath(
+				full_name,
+				dirPathRel,
+				tuple(subDirs),
+				tuple(files),
+				silent=True,
+			)
+			if name.asname:
+				jsonNames.append(f"{name.name} as {name.asname}")
+				imports_by_name[name.asname] = (full_name, module_fpath)
+			else:
+				jsonNames.append(name.name)
+				imports_by_name[name.name] = (full_name, module_fpath)
+			import_froms.append((module, jsonNames))
+			import_froms_set.add(name.name)
 
-			if isinstance(stm, ast.ImportFrom):
-				handleImportFrom(stm)
-				continue
+	def handleAttribute(stm):
+		if isinstance(stm.value, ast.Name):
+			attr_access.add((stm.value.id, stm.attr))
+			return None
+		return handleStatement(stm.value)
 
+	def handleStatementList(statements):
+		for stm in statements:
 			handleStatement(stm)
 
-		module_attr_access = set()
-		for _id, attr in attr_access:
-			if _id in ("self", "msg"):
-				continue
-			if _id not in imports_by_name:
-				# print(f"{fpathRel}: {_id}.{attr}  (Unknown)")
-				continue
-			module, module_fpath = imports_by_name[_id]
-			# print(f"{fpathRel}: {module}.{attr} from file ({module_fpath})")
-			module_attr_access.add((module, attr, module_fpath))
-			all_module_attr_access.add((module, attr, module_fpath))
+	def handleStatements(*statements):
+		for stm in statements:
+			handleStatement(stm)
 
-		# print(json.dumps(list(attr_access)))
+	def handleStatement(stm):
+		if stm is None:
+			return None
+		if isinstance(stm, ast.Import):
+			handleImport(stm)
+		elif isinstance(stm, ast.ImportFrom):
+			handleImportFrom(stm)
+		elif isinstance(stm, ast.Name):
+			# print(f"name: id={stm.id}")
+			pass
+		elif isinstance(
+			stm,
+			ast.Pass
+			| ast.Break
+			| ast.Continue
+			| ast.Delete
+			| ast.Constant
+			| ast.JoinedStr
+			| ast.Slice
+			| ast.Global,
+		):
+			pass
+		elif isinstance(stm, ast.Assign):
+			handleStatement(stm.value)
+		elif isinstance(stm, ast.AugAssign):
+			handleStatements(stm.target, stm.value)
+		elif isinstance(stm, ast.Expr):
+			handleStatement(stm.value)
+		elif isinstance(stm, ast.Return):
+			handleStatement(stm.value)
+		elif isinstance(stm, ast.Yield):
+			handleStatement(stm.value)
+		elif isinstance(stm, ast.YieldFrom):
+			handleStatement(stm.value)
+		elif isinstance(stm, ast.Assert):
+			handleStatements(stm.test, stm.msg)
+		elif isinstance(stm, ast.IfExp):
+			handleStatements(stm.test, stm.body, stm.orelse)
+		elif isinstance(stm, ast.FunctionDef):
+			handleStatementList(stm.args.defaults)
+			handleStatementList(stm.body)
+			handleStatementList(stm.decorator_list)
+		elif isinstance(stm, ast.ClassDef):
+			handleStatementList(stm.body)
+		elif isinstance(stm, ast.BoolOp):
+			handleStatementList(stm.values)
+		elif isinstance(stm, ast.Subscript):
+			handleStatements(stm.value, stm.slice)
+		elif isinstance(stm, ast.With):
+			handleStatementList(stm.items + stm.body)
+		elif isinstance(stm, ast.List | ast.Tuple | ast.Set):
+			handleStatementList(stm.elts)
+		elif isinstance(stm, ast.Lambda):
+			handleStatement(stm.body)
+		elif isinstance(stm, ast.For):
+			handleStatementList([stm.target, stm.iter] + stm.body + stm.orelse)
+		elif isinstance(stm, ast.While):
+			handleStatementList([stm.test] + stm.body + stm.orelse)
+		elif isinstance(stm, ast.BinOp):
+			handleStatements(stm.left, stm.right)
+		elif isinstance(stm, ast.UnaryOp):
+			handleStatement(stm.operand)
+		elif isinstance(stm, ast.Try):
+			handleStatementList(
+				stm.body + stm.handlers + stm.orelse + stm.finalbody,
+			)
+		elif isinstance(stm, ast.ExceptHandler):
+			handleStatementList([stm.type] + stm.body)
+		elif isinstance(stm, ast.Call):
+			handleStatement(stm.func)
+		elif isinstance(stm, ast.If):
+			handleStatementList([stm.test] + stm.body)
+		elif isinstance(stm, ast.Compare):
+			handleStatementList([stm.left] + stm.comparators)
+		elif isinstance(stm, ast.withitem):
+			handleStatements(stm.context_expr, stm.optional_vars)
+		elif isinstance(stm, ast.Raise):
+			handleStatement(stm.exc)
+		elif isinstance(stm, ast.Return):
+			handleStatement(stm.value)
+		elif isinstance(stm, ast.Dict):
+			# TODO
+			pass
+		elif isinstance(
+			stm,
+			ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+		):
+			handleStatementList(stm.generators)
+		elif isinstance(stm, ast.comprehension):
+			handleStatementList([stm.target, stm.iter] + stm.ifs)
+		elif isinstance(stm, ast.Attribute):
+			return handleAttribute(stm)
+		elif isinstance(stm, ast.AnnAssign):
+			handleStatements(stm.target, stm.annotation, stm.value)
+		elif isinstance(stm, ast.NamedExpr):
+			handleStatements(stm.target, stm.value)
+		elif isinstance(stm, ast.AsyncFunctionDef):
+			handleStatementList(stm.args.defaults)
+			handleStatementList(stm.body)
+			handleStatementList(stm.decorator_list)
+		elif isinstance(stm, ast.Starred):
+			handleStatement(stm.value)
+		elif isinstance(stm, ast.Nonlocal):
+			# stm.names is list[str]
+			pass
+		else:
+			print(f"Unknown statemnent type: {stm} with type {type(stm)}")
+		return None
 
-		full_data[fpathRel] = {
-			"imports": imports,
-			"import_froms": import_froms,
-			"module_attr_access": list(module_attr_access),
-		}
+	with open(fpath) as _file:
+		text = _file.read()
+	try:
+		code = ast.parse(text)
+	except Exception as e:
+		print(f"failed to parse {fpath}: {e}", file=sys.stderr)
+		return
+	for stm in code.body:
+		if isinstance(stm, ast.Import):
+			handleImport(stm)
+			continue
+
+		if isinstance(stm, ast.ImportFrom):
+			handleImportFrom(stm)
+			continue
+
+		handleStatement(stm)
+
+	module_attr_access = set()
+	for _id, attr in attr_access:
+		if _id in ("self", "msg"):
+			continue
+		if _id not in imports_by_name:
+			# print(f"{fpathRel}: {_id}.{attr}  (Unknown)")
+			continue
+		module, module_fpath = imports_by_name[_id]
+		# print(f"{fpathRel}: {module}.{attr} from file ({module_fpath})")
+		module_attr_access.add((module, attr, module_fpath))
+		all_module_attr_access.add((module, attr, module_fpath))
+
+	# print(json.dumps(list(attr_access)))
+
+	full_data[fpathRel] = {
+		"imports": imports,
+		"import_froms": import_froms,
+		"module_attr_access": list(module_attr_access),
+	}
+
+
+for dirPath, subDirs, files in os.walk(scanDir):
+	dirPathRel = dirPath[len(rootDir) :]
+
+	for fname in files:
+		processFile(dirPathRel, fname, subDirs)
+
 
 to_check_imported_modules = set()
-for (module, module_fpath), _used_names in imported_from_by_module_and_path.items():
+for (module, module_fpath) in imported_from_by_module_and_path:
 	if module_fpath is None:
 		continue
 	to_check_imported_modules.add((module, module_fpath))
@@ -408,7 +411,7 @@ for module, module_fpath in sorted(to_check_imported_modules):
 	try:
 		code = ast.parse(text)
 	except Exception as e:
-		print(f"failed to parse {module_fpath=} {fpath=}: {e}", file=sys.stderr)
+		print(f"failed to parse {module_fpath=}: {e}", file=sys.stderr)
 		continue
 	_all_stm, _all = find__all__(code)
 	_all_set = set(_all)
