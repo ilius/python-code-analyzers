@@ -68,8 +68,10 @@ def is_excluded(fpath: str) -> bool:
 			return True
 	return False
 
+
 def formatList(lst):
 	return json.dumps(lst)
+
 
 @lru_cache(maxsize=None, typed=False)
 def moduleFilePath(
@@ -414,7 +416,7 @@ for module, module_fpath in sorted(to_check_imported_modules):
 	names1 = imported_from_by_module_and_path.get((module, module_fpath))
 	if names1:
 		_all_set.update(names1)
-	names2 = module_attr_access_by_fpath.get(module_fpath, None)
+	names2 = module_attr_access_by_fpath.get(module_fpath)
 	if names2:
 		_all_set.update(names2)
 	if "*" in _all_set:
