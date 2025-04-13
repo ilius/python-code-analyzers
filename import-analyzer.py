@@ -5,6 +5,7 @@ import ast
 import json
 import os
 import re
+import subprocess
 import sys
 import warnings
 from functools import lru_cache
@@ -13,6 +14,10 @@ from os.path import isdir, isfile, join, realpath, split
 import tomllib
 
 warnings.simplefilter("ignore")
+
+modifyAndOpenFiles = True
+editor = os.getenv("IDE", "xdg-open")
+modifiedFiles = set()
 
 parser = argparse.ArgumentParser(
 	prog=sys.argv[0],
@@ -177,9 +182,7 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 			tuple(files),
 		)
 		try:
-			import_froms_set = imported_from_by_module_and_path[
-				module, module_fpath
-			]
+			import_froms_set = imported_from_by_module_and_path[module, module_fpath]
 		except KeyError:
 			import_froms_set = imported_from_by_module_and_path[
 				module, module_fpath
@@ -375,7 +378,7 @@ for dirPath, subDirs, files in os.walk(scanDir):
 
 
 to_check_imported_modules = set()
-for (module, module_fpath) in imported_from_by_module_and_path:
+for module, module_fpath in imported_from_by_module_and_path:
 	if module_fpath is None:
 		continue
 	to_check_imported_modules.add((module, module_fpath))
@@ -431,6 +434,13 @@ for module, module_fpath in sorted(to_check_imported_modules):
 		print(module_fpath)
 		print("ADD to __all__:", formatList(add_list))
 		print()
+	elif modifyAndOpenFiles:
+		with open(module_fpath, encoding="utf-8") as file:
+			text = file.read()
+		text = f"__all__ = {add_list!r}" + "\n" + text
+		with open(module_fpath, "w", encoding="utf-8") as file:
+			file.write(text)
+		modifiedFiles.add(module_fpath)
 	else:
 		print(module_fpath)
 		print("__all__ =", formatList(add_list))
@@ -495,3 +505,8 @@ with open(f"{args.out_dir}/imports_from_set.json", "w", encoding="utf-8") as _fi
 		indent="\t",
 		sort_keys=True,
 	)
+
+if modifiedFiles:
+	cmd = [editor] + [join(rootDir, p) for p in modifiedFiles]
+	print(cmd)
+	subprocess.call(cmd)
