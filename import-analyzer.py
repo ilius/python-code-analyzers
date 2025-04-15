@@ -9,7 +9,7 @@ import subprocess
 import sys
 import warnings
 from functools import lru_cache
-from os.path import isdir, isfile, join, realpath, split
+from os.path import dirname, isdir, isfile, join, realpath, split
 
 import tomllib
 
@@ -109,6 +109,8 @@ def moduleFilePath(
 	pathRel = join(*parts)
 	dpath = join(rootDir, pathRel)
 	if isdir(dpath):
+		if isfile(join(dpath, "__init__.py")):
+			return join(pathRel, "__init__.py")
 		return None
 	if isfile(dpath + ".py"):
 		return pathRel + ".py"
@@ -131,7 +133,7 @@ def find__all__(code):
 		assert len(stm.targets) == 1
 		# stm.value.elts[i]: ast.Constant
 		return stm, [elem.value for elem in stm.value.elts]
-	return None, []
+	return None, None
 
 
 def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
@@ -401,6 +403,10 @@ for _module, attr, module_fpath in all_module_attr_access:
 	attrs.add(attr)
 
 
+slashDunderInit = os.sep + "__init__.py"
+
+skipAllAdd = set()
+
 for module, module_fpath in sorted(to_check_imported_modules):
 	# print(module, module_fpath)
 	full_path = join(rootDir, module_fpath)
@@ -417,20 +423,34 @@ for module, module_fpath in sorted(to_check_imported_modules):
 		print(f"failed to parse {module_fpath=}: {e}", file=sys.stderr)
 		continue
 	_all_stm, _all = find__all__(code)
-	_all_set = set(_all)
-	_all_set_current = _all_set.copy()
+	has_all = False
+	if _all is None:
+		_all_set = set()
+		_all_set_current = set()
+	else:
+		has_all = True
+		_all_set = set(_all)
+		_all_set_current = _all_set.copy()
 	names1 = imported_from_by_module_and_path.get((module, module_fpath))
 	if names1:
-		_all_set.update(names1)
+		for name in names1:
+			if module_fpath.endswith(slashDunderInit) and isfile(
+				join(dirname(module_fpath), name + ".py")
+			):
+				skipAllAdd.add((module, name))
+				continue
+			_all_set.add(name)
 	names2 = module_attr_access_by_fpath.get(module_fpath)
 	if names2:
 		_all_set.update(names2)
 	_all_set.discard("*")
+	if not _all_set:
+		continue
 	if len(_all_set) == len(_all_set_current):
 		continue
 	add_list = list(_all_set.difference(_all_set_current))
 
-	if _all_set_current:
+	if has_all:
 		print(module_fpath)
 		print("ADD to __all__:", formatList(add_list))
 		print()
@@ -474,6 +494,9 @@ for module, module_fpath in sorted(to_check_imported_modules):
 	# with open(full_path, mode="w") as _file:
 	# 	_file.write(code_formatted)
 	# print("Updated", full_path)
+
+for module, name in skipAllAdd:
+	print(f"Skipped adding to __all__: {name} from {module}")
 
 
 with open(f"{args.out_dir}/module-attrs.json", "w", encoding="utf-8") as _file:
