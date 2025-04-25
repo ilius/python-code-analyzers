@@ -434,11 +434,11 @@ for module, module_fpath in sorted(to_check_imported_modules):
 	names1 = imported_from_by_module_and_path.get((module, module_fpath))
 	if names1:
 		for name in names1:
-			if module_fpath.endswith(slashDunderInit) and isfile(
-				join(dirname(module_fpath), name + ".py")
-			):
-				skipAllAdd.add((module, name))
-				continue
+			if module_fpath.endswith(slashDunderInit):
+				moduleDirName = join(dirname(module_fpath), name)
+				if isfile(moduleDirName + ".py") or isdir(moduleDirName):
+					skipAllAdd.add((module, name))
+					continue
 			_all_set.add(name)
 	names2 = module_attr_access_by_fpath.get(module_fpath)
 	if names2:
