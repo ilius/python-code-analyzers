@@ -115,7 +115,10 @@ def moduleFilePath(
 	if isfile(dpath + ".py"):
 		return pathRel + ".py"
 	if not silent:
-		print(f"{module=}, {pathRel=}, {dirPathRel=}", file=sys.stderr)
+		print(
+			f"Unknown module {module}: {pathRel=}, used in {dirPathRel}",
+			file=sys.stderr,
+		)
 	return None
 
 
