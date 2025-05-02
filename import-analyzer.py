@@ -332,6 +332,9 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 		elif isinstance(stm, ast.Nonlocal):
 			# stm.names is list[str]
 			pass
+		elif isinstance(stm, ast.TypeAlias):
+			# TODO
+			pass
 		else:
 			print(f"Unknown statemnent type: {stm} with type {type(stm)}")
 		return None
