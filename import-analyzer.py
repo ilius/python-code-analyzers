@@ -501,8 +501,8 @@ for module, module_fpath in sorted(to_check_imported_modules):
 	# 	_file.write(code_formatted)
 	# print("Updated", full_path)
 
-for module, name in skipAllAdd:
-	print(f"Skipped adding to __all__: {name} from {module}")
+# for module, name in skipAllAdd:
+# 	print(f"Skipped adding to __all__: {name} from {module}")
 
 
 with open(f"{args.out_dir}/module-attrs.json", "w", encoding="utf-8") as _file:
