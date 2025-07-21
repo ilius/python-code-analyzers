@@ -249,6 +249,7 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 			pass
 		elif isinstance(stm, ast.Assign):
 			handleStatement(stm.value)
+			handleStatementList(stm.targets)
 		elif isinstance(stm, ast.AugAssign):
 			handleStatements(stm.target, stm.value)
 		elif isinstance(stm, ast.Expr):
@@ -310,8 +311,8 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 		elif isinstance(stm, ast.Return):
 			handleStatement(stm.value)
 		elif isinstance(stm, ast.Dict):
-			# TODO
-			pass
+			handleStatementList(stm.keys)
+			handleStatementList(stm.values)
 		elif isinstance(
 			stm,
 			ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
