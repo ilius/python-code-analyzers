@@ -294,6 +294,10 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 		elif isinstance(stm, ast.ExceptHandler):
 			handleStatementList([stm.type] + stm.body)
 		elif isinstance(stm, ast.Call):
+			for arg in stm.args:
+				handleStatement(arg)
+			for kw in stm.keywords:
+				handleStatement(kw.value)
 			handleStatement(stm.func)
 		elif isinstance(stm, ast.If):
 			handleStatementList([stm.test] + stm.body)
