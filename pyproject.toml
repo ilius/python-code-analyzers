@@ -16,7 +16,7 @@ exclude = [
 
 [tool.ruff.lint]
 select = [
-	# "ANN", # flake8-annotationsq
+	"ANN", # flake8-annotations
 	"F",   # Pyflakes
 	"E",   # pycodestyle Error
 	"W",   # pycodestyle Warning
@@ -73,8 +73,6 @@ ignore = [
 	"C901",    # `...` is too complex (? > 13)
 	"PLR0912", # Too many branches
 	"SIM114",  # Combine `if` branches using logical `or` operator
-	"ANN401",  # Dynamically typed expressions (typing.Any) are disallowed in ...
-	"ANN003",  # Missing type annotation for `**kwargs`, 22 remaining
 
 	"PYI042",  # Type alias `...` should be CamelCase FIXME
 	"RUF039",  # First argument to `re.compile()` is not raw string

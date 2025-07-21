@@ -58,12 +58,10 @@ config = tool_config.get("import-analyzer") or {}
 re_exclude_list = [re.compile("^" + pat) for pat in config.get("exclude", [])]
 exclude_toplevel_module = set(config.get("exclude_toplevel_module", []))
 
-full_data = {}
+imported_set: set[str] = set()
+imported_from_by_module_path: dict[str, set[str]] = {}
 
-imported_set = set()
-imported_from_by_module_path = {}
-
-all_module_attr_access = set()
+all_module_attr_access: set[tuple[str, str]] = set()
 
 
 @lru_cache(maxsize=None, typed=False)
@@ -71,18 +69,18 @@ def is_excluded(fpath: str) -> bool:
 	return any(pat.match(fpath) for pat in re_exclude_list)
 
 
-def formatList(lst):
+def formatList(lst: list[str]) -> str:
 	return json.dumps(lst)
 
 
 @lru_cache(maxsize=None, typed=False)
 def moduleFilePath(
-	module,
-	dirPathRel,
-	subDirs,
-	files,
-	silent=False,
-):
+	module: str,
+	dirPathRel: str,
+	subDirs: list[str],
+	files: list[str],
+	silent: bool = False,
+) -> str | None:
 	if not module:
 		return None
 	parts = module.split(".")
@@ -103,7 +101,7 @@ def moduleFilePath(
 		except Exception as e:
 			print(f"error importing {main}: {e}", file=sys.stderr)
 		else:
-			if "/site-packages/" in mod.__file__:
+			if mod.__file__ and "/site-packages/" in mod.__file__:
 				return None
 
 	pathRel = join(*parts)
@@ -122,7 +120,7 @@ def moduleFilePath(
 	return None
 
 
-def find__all__(code):
+def find__all__(code: ast.Module) -> tuple[ast.Assign | None, list[str] | None]:
 	for stm in code.body:
 		if not isinstance(stm, ast.Assign):
 			continue
@@ -135,7 +133,11 @@ def find__all__(code):
 		assert isinstance(stm.value, ast.List)
 		assert len(stm.targets) == 1
 		# stm.value.elts[i]: ast.Constant
-		return stm, [elem.value for elem in stm.value.elts]
+		all_ = []
+		for elem in stm.value.elts:
+			assert isinstance(elem, ast.Constant)
+			all_.append(elem.value)
+		return stm, all_
 	return None, None
 
 
@@ -155,10 +157,9 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 
 	imports = []
 	imports_by_name = {}
-	import_froms = []
 	attr_access = set()
 
-	def handleImport(stm):
+	def handleImport(stm: ast.Import) -> None:
 		for name in stm.names:
 			module_fpath = moduleFilePath(
 				name.name,
@@ -166,6 +167,8 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 				tuple(subDirs),
 				tuple(files),
 			)
+			if module_fpath is None:
+				continue
 			if name.asname:
 				imports.append(f"{name.name} as {name.asname}")
 				imports_by_name[name.asname] = (name.name, module_fpath)
@@ -174,18 +177,19 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 				imports_by_name[name.name] = (name.name, module_fpath)
 			imported_set.add(name.name)
 
-	def handleImportFrom(stm):
+	def handleImportFrom(stm: ast.ImportFrom) -> None:
 		module = stm.module
 		if module is None:
 			# print(f"{module = }, {stm!r}", file=sys.stderr)
 			module = dirPathRel.replace("/", ".")
-		jsonNames = []
 		module_fpath = moduleFilePath(
 			module,
 			dirPathRel,
 			tuple(subDirs),
 			tuple(files),
 		)
+		if module_fpath is None:
+			return
 		try:
 			import_froms_set = imported_from_by_module_path[module_fpath]
 		except KeyError:
@@ -195,7 +199,7 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 				# print(f"{name = }", file=sys.stderr)
 				continue
 			full_name = module + "." + name.name
-			module_fpath = moduleFilePath(
+			tmp_module_fpath = moduleFilePath(
 				full_name,
 				dirPathRel,
 				tuple(subDirs),
@@ -203,31 +207,29 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 				silent=True,
 			)
 			if name.asname:
-				jsonNames.append(f"{name.name} as {name.asname}")
-				imports_by_name[name.asname] = (full_name, module_fpath)
+				imports_by_name[name.asname] = (full_name, tmp_module_fpath)
 			else:
-				jsonNames.append(name.name)
-				imports_by_name[name.name] = (full_name, module_fpath)
-			import_froms.append((module, jsonNames))
+				imports_by_name[name.name] = (full_name, tmp_module_fpath)
 			import_froms_set.add(name.name)
 
-	def handleAttribute(stm):
+	def handleAttribute(stm: ast.Attribute) -> None:
+		assert isinstance(stm.attr, str)
 		if isinstance(stm.value, ast.Name):
 			attr_access.add((stm.value.id, stm.attr))
-			return None
-		return handleStatement(stm.value)
+		else:
+			handleStatement(stm.value)
 
-	def handleStatementList(statements):
+	def handleStatementList(statements: list[ast.stmt | ast.expr | None]) -> None:
 		for stm in statements:
 			handleStatement(stm)
 
-	def handleStatements(*statements):
+	def handleStatements(*statements: ast.stmt | ast.expr | None) -> None:
 		for stm in statements:
 			handleStatement(stm)
 
-	def handleStatement(stm):
+	def handleStatement(stm: ast.stmt | ast.expr | None) -> None:
 		if stm is None:
-			return None
+			return
 		if isinstance(stm, ast.Import):
 			handleImport(stm)
 		elif isinstance(stm, ast.ImportFrom):
@@ -321,7 +323,7 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 		elif isinstance(stm, ast.comprehension):
 			handleStatementList([stm.target, stm.iter] + stm.ifs)
 		elif isinstance(stm, ast.Attribute):
-			return handleAttribute(stm)
+			handleAttribute(stm)
 		elif isinstance(stm, ast.AnnAssign):
 			handleStatements(stm.target, stm.annotation, stm.value)
 		elif isinstance(stm, ast.NamedExpr):
@@ -340,7 +342,7 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 			pass
 		else:
 			print(f"Unknown statemnent type: {stm} with type {type(stm)}")
-		return None
+		return
 
 	with open(fpath, encoding="utf-8") as _file:
 		text = _file.read()
@@ -371,11 +373,6 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 		all_module_attr_access.add((attr, module_fpath))
 
 	# print(json.dumps(list(attr_access)))
-
-	full_data[fpathRel] = {
-		"imports": imports,
-		"import_froms": import_froms,
-	}
 
 
 for dirPath, subDirs, files in os.walk(scanDir):
