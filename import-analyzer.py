@@ -365,7 +365,7 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 		if _id not in imports_by_name:
 			# print(f"{fpathRel}: {_id}.{attr}  (Unknown)")
 			continue
-		module, module_fpath = imports_by_name[_id]
+		_module, module_fpath = imports_by_name[_id]
 		# print(f"{fpathRel}: {module}.{attr} from file ({module_fpath})")
 		all_module_attr_access.add((attr, module_fpath))
 
