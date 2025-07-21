@@ -355,7 +355,6 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 
 		handleStatement(stm)
 
-	module_attr_access = set()
 	for _id, attr in attr_access:
 		if _id in {"self", "msg"}:
 			continue
@@ -364,15 +363,13 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 			continue
 		module, module_fpath = imports_by_name[_id]
 		# print(f"{fpathRel}: {module}.{attr} from file ({module_fpath})")
-		module_attr_access.add((module, attr, module_fpath))
-		all_module_attr_access.add((module, attr, module_fpath))
+		all_module_attr_access.add((attr, module_fpath))
 
 	# print(json.dumps(list(attr_access)))
 
 	full_data[fpathRel] = {
 		"imports": imports,
 		"import_froms": import_froms,
-		"module_attr_access": list(module_attr_access),
 	}
 
 
@@ -390,14 +387,14 @@ for module_fpath in imported_from_by_module_path:
 	to_check_imported_modules.add(module_fpath)
 
 
-for _module, _attr, module_fpath in all_module_attr_access:
+for _attr, module_fpath in all_module_attr_access:
 	if module_fpath is None:
 		continue
 	to_check_imported_modules.add(module_fpath)
 
 
 module_attr_access_by_fpath = {}
-for _module, attr, module_fpath in all_module_attr_access:
+for attr, module_fpath in all_module_attr_access:
 	if module_fpath is None:
 		continue
 	try:
