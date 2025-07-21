@@ -178,7 +178,7 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 		module = stm.module
 		if module is None:
 			# print(f"{module = }, {stm!r}", file=sys.stderr)
-			return
+			module = dirPathRel.replace("/", ".")
 		jsonNames = []
 		module_fpath = moduleFilePath(
 			module,
