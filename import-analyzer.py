@@ -61,7 +61,7 @@ exclude_toplevel_module = set(config.get("exclude_toplevel_module", []))
 full_data = {}
 
 imported_set = set()
-imported_from_by_module_and_path = {}
+imported_from_by_module_path = {}
 
 all_module_attr_access = set()
 
@@ -187,11 +187,9 @@ def processFile(dirPathRel: str, fname: str, subDirs: list[str]) -> None:
 			tuple(files),
 		)
 		try:
-			import_froms_set = imported_from_by_module_and_path[module, module_fpath]
+			import_froms_set = imported_from_by_module_path[module_fpath]
 		except KeyError:
-			import_froms_set = imported_from_by_module_and_path[
-				module, module_fpath
-			] = set()
+			import_froms_set = imported_from_by_module_path[module_fpath] = set()
 		for name in stm.names:
 			if not name.name:
 				# print(f"{name = }", file=sys.stderr)
@@ -386,16 +384,16 @@ for dirPath, subDirs, files in os.walk(scanDir):
 
 
 to_check_imported_modules = set()
-for module, module_fpath in imported_from_by_module_and_path:
+for module_fpath in imported_from_by_module_path:
 	if module_fpath is None:
 		continue
-	to_check_imported_modules.add((module, module_fpath))
+	to_check_imported_modules.add(module_fpath)
 
 
-for module, _attr, module_fpath in all_module_attr_access:
+for _module, _attr, module_fpath in all_module_attr_access:
 	if module_fpath is None:
 		continue
-	to_check_imported_modules.add((module, module_fpath))
+	to_check_imported_modules.add(module_fpath)
 
 
 module_attr_access_by_fpath = {}
@@ -413,7 +411,7 @@ slashDunderInit = os.sep + "__init__.py"
 
 skipAllAdd = set()
 
-for module, module_fpath in sorted(to_check_imported_modules):
+for module_fpath in sorted(to_check_imported_modules):
 	# print(module, module_fpath)
 	full_path = join(rootDir, module_fpath)
 	with open(full_path, encoding="utf-8") as _file:
@@ -437,13 +435,13 @@ for module, module_fpath in sorted(to_check_imported_modules):
 		has_all = True
 		_all_set = set(_all)
 		_all_set_current = _all_set.copy()
-	names1 = imported_from_by_module_and_path.get((module, module_fpath))
+	names1 = imported_from_by_module_path.get(module_fpath)
 	if names1:
 		for name in names1:
 			if module_fpath.endswith(slashDunderInit):
 				moduleDirName = join(dirname(module_fpath), name)
 				if isfile(moduleDirName + ".py") or isdir(moduleDirName):
-					skipAllAdd.add((module, name))
+					skipAllAdd.add((module_fpath, name))
 					continue
 			_all_set.add(name)
 	names2 = module_attr_access_by_fpath.get(module_fpath)
@@ -452,6 +450,14 @@ for module, module_fpath in sorted(to_check_imported_modules):
 	_all_set.discard("*")
 	if not _all_set:
 		continue
+
+	if has_all:
+		used_set = set(names1 or []) | set(names2 or [])
+		unused_set = _all_set_current.difference(used_set)
+		# print(f"{module_fpath}: used {sorted(used_set)}")
+		for symbol in sorted(unused_set):
+			print(f"{module_fpath}: unused symbol {symbol} in __all__")
+
 	if len(_all_set) == len(_all_set_current):
 		continue
 	add_list = list(_all_set.difference(_all_set_current))
@@ -501,39 +507,9 @@ for module, module_fpath in sorted(to_check_imported_modules):
 	# 	_file.write(code_formatted)
 	# print("Updated", full_path)
 
-# for module, name in skipAllAdd:
-# 	print(f"Skipped adding to __all__: {name} from {module}")
+# for module_fpath, name in skipAllAdd:
+# 	print(f"Skipped adding to __all__: {name} from {module_fpath}")
 
-
-with open(f"{args.out_dir}/module-attrs.json", "w", encoding="utf-8") as _file:
-	json.dump(
-		{
-			module: sorted(attrs)
-			for module, attrs in module_attr_access_by_fpath.items()
-		},
-		_file,
-		indent="\t",
-		sort_keys=True,
-	)
-
-
-with open(f"{args.out_dir}/imports_set.json", "w", encoding="utf-8") as _file:
-	json.dump(sorted(imported_set), _file, indent="\t")
-
-with open(f"{args.out_dir}/imports_from_set.json", "w", encoding="utf-8") as _file:
-	json.dump(
-		{
-			module: sorted(value)
-			for (
-				module,
-				module_fpath,
-			), value in imported_from_by_module_and_path.items()
-			if module_fpath
-		},
-		_file,
-		indent="\t",
-		sort_keys=True,
-	)
 
 if modifiedFiles:
 	cmd = [editor] + [join(rootDir, p) for p in modifiedFiles]
