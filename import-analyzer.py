@@ -93,16 +93,13 @@ def moduleFilePath(
 		return None
 	if main in files or main + ".py" in files or main in subDirs:
 		parts = list(split(dirPathRel)) + parts
-	else:
-		try:
-			mod = __import__(main)
-		except ModuleNotFoundError:
-			pass
-		except Exception as e:
-			print(f"error importing {main}: {e}", file=sys.stderr)
-		else:
-			if mod.__file__ and "/site-packages/" in mod.__file__:
-				return None
+	# else:
+	# 	try:
+	# 		mod = __import__(main)
+	# 	except ModuleNotFoundError:
+	# 		pass
+	# 	except Exception as e:
+	# 		print(f"error importing {main}: {e}", file=sys.stderr)
 
 	pathRel = join(*parts)
 	dpath = join(rootDir, pathRel)
